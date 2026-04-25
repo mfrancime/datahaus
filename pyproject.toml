@@ -1,0 +1,25 @@
+[project]
+name = "datahaus"
+version = "0.1.0"
+description = "Personal data operations platform — 24/7 market data ingestion, quality monitoring, and incident response"
+requires-python = ">=3.10"
+
+dependencies = [
+    "apache-airflow==2.10.5",
+    "pyspark==3.5.4",
+    "delta-spark==3.3.0",
+    "duckdb>=1.0.0",
+    "soda-core>=3.5.0",
+    "soda-core-duckdb>=3.5.0",
+    "requests>=2.31",
+    "pandas>=2.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

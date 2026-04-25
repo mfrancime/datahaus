@@ -1,0 +1,4 @@
+data_source datahaus:
+  type: duckdb
+  path: warehouse/datahaus.duckdb
+  schema: curated

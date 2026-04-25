@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+
+# Airflow
+.airflow/
+airflow.db
+airflow-webserver.pid
+airflow.cfg
+
+# DuckDB
+warehouse/*.duckdb
+warehouse/*.duckdb.wal
+
+# Delta Lake
+warehouse/delta/
+spark-warehouse/
+
+# Spark
+metastore_db/
+derby.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
