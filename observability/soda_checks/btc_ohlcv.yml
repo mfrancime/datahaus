@@ -1,9 +1,6 @@
 checks for btc_ohlcv:
-  # Table must have been refreshed within the last 10 minutes
-  - freshness(ingested_at) < 10m
-
-  # Table must not be empty
+  # Global table must have data
   - row_count > 0
 
-  # No duplicate candles — open_time is the natural key
-  - duplicate_count(open_time) = 0
+  # No duplicate candles per exchange — (exchange, open_time) is the PK
+  - duplicate_count(exchange, open_time) = 0

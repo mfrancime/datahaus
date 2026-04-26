@@ -45,3 +45,6 @@ Thumbs.db
 # Logs
 logs/
 *.log
+
+# Alert logs (runtime data)
+observability/alerts/*.jsonl

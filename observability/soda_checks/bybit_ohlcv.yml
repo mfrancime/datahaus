@@ -1,0 +1,12 @@
+filter btc_ohlcv [bybit]:
+  where: exchange = 'bybit'
+
+checks for btc_ohlcv [bybit]:
+  # Bybit data must have been refreshed within the last 10 minutes
+  - freshness(ingested_at) < 10m
+
+  # Must have rows from Bybit
+  - row_count > 0
+
+  # No duplicate candles for Bybit
+  - duplicate_count(open_time) = 0

@@ -1,0 +1,19 @@
+filter btc_ohlcv [binance]:
+  where: exchange = 'binance'
+
+checks for btc_ohlcv [binance]:
+  # Binance data must have been refreshed within the last 10 minutes
+  - freshness(ingested_at) < 10m
+
+  # Must have rows from Binance
+  - row_count > 0
+
+  # No duplicate candles for Binance
+  - duplicate_count(open_time) = 0
+
+  # Binance-specific fields must not be null
+  - missing_count(close_time) = 0
+  - missing_count(quote_volume) = 0
+  - missing_count(trade_count) = 0
+  - missing_count(taker_buy_base_volume) = 0
+  - missing_count(taker_buy_quote_volume) = 0

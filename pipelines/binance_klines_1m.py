@@ -2,8 +2,8 @@
 Binance BTC/USDT 1-minute klines ingestion pipeline.
 
 Pulls the last 100 one-minute candles from Binance public API,
-normalizes them via PySpark, and upserts into DuckDB.
-Scheduled every 5 minutes for fast feedback during Phase 1.
+normalizes them via the Binance adapter, and upserts into DuckDB.
+Scheduled every 5 minutes for fast feedback.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import requests
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
@@ -22,11 +21,6 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WAREHOUSE_DB = PROJECT_ROOT / "warehouse" / "datahaus.duckdb"
 SCHEMA_SQL = PROJECT_ROOT / "warehouse" / "schema.sql"
-
-BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
-SYMBOL = "BTCUSDT"
-INTERVAL = "1m"
-LIMIT = 100
 
 default_args = {
     "owner": "datahaus",
@@ -44,34 +38,32 @@ dag = DAG(
     start_date=datetime(2025, 1, 1),
     catchup=False,
     max_active_runs=1,
-    sla_miss_callback=None,
-    tags=["phase-1", "crypto", "binance"],
+    tags=["phase-2", "crypto", "binance"],
 )
 
 
 def extract(**kwargs) -> None:
     """Pull raw klines from Binance public REST API and push to XCom."""
-    params = {"symbol": SYMBOL, "interval": INTERVAL, "limit": LIMIT}
-    logger.info("Requesting klines: %s %s", BINANCE_KLINES_URL, params)
+    import sys
+    sys.path.insert(0, str(PROJECT_ROOT))
+    from compute.adapters.binance import BinanceAdapter
 
-    resp = requests.get(BINANCE_KLINES_URL, params=params, timeout=30)
-    resp.raise_for_status()
-
-    data = resp.json()
-    logger.info("Received %d klines from Binance", len(data))
+    adapter = BinanceAdapter()
+    data = adapter.fetch_raw()
     kwargs["ti"].xcom_push(key="raw_klines", value=json.dumps(data))
 
 
 def transform(**kwargs) -> None:
-    """Normalize raw klines via PySpark and push parquet-ready rows to XCom."""
+    """Normalize raw klines via adapter and push rows to XCom."""
     import sys
     sys.path.insert(0, str(PROJECT_ROOT))
-    from compute.ingest_klines import transform_klines
+    from compute.adapters.binance import BinanceAdapter
 
     raw_json = kwargs["ti"].xcom_pull(key="raw_klines", task_ids="extract")
     raw_data = json.loads(raw_json)
 
-    rows = transform_klines(raw_data)
+    adapter = BinanceAdapter()
+    rows = adapter.transform(raw_data)
     logger.info("Transformed %d rows", len(rows))
     kwargs["ti"].xcom_push(key="transformed_rows", value=json.dumps(rows))
 
@@ -87,7 +79,6 @@ def load(**kwargs) -> None:
         logger.warning("No rows to load — skipping")
         return
 
-    # Ensure schema exists
     con = duckdb.connect(str(WAREHOUSE_DB))
     try:
         schema_ddl = SCHEMA_SQL.read_text()
@@ -96,11 +87,11 @@ def load(**kwargs) -> None:
             if stmt:
                 con.execute(stmt)
 
-        # Upsert: delete existing rows by open_time, then insert
+        # Upsert: delete existing rows scoped to this exchange
         open_times = [r["open_time"] for r in rows]
         placeholders = ",".join(["?"] * len(open_times))
         con.execute(
-            f"DELETE FROM curated.btc_ohlcv WHERE open_time IN ({placeholders})",
+            f"DELETE FROM curated.btc_ohlcv WHERE exchange = 'binance' AND open_time IN ({placeholders})",
             open_times,
         )
 
@@ -108,13 +99,14 @@ def load(**kwargs) -> None:
             con.execute(
                 """
                 INSERT INTO curated.btc_ohlcv (
-                    open_time, open, high, low, close, volume,
+                    exchange, open_time, open, high, low, close, volume,
                     close_time, quote_volume, trade_count,
                     taker_buy_base_volume, taker_buy_quote_volume,
-                    ingested_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    confirm, ingested_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
+                    row["exchange"],
                     row["open_time"],
                     row["open"],
                     row["high"],
@@ -126,12 +118,15 @@ def load(**kwargs) -> None:
                     row["trade_count"],
                     row["taker_buy_base_volume"],
                     row["taker_buy_quote_volume"],
+                    row["confirm"],
                     row["ingested_at"],
                 ],
             )
 
-        count = con.execute("SELECT COUNT(*) FROM curated.btc_ohlcv").fetchone()[0]
-        logger.info("Loaded %d rows. Table now has %d total rows.", len(rows), count)
+        count = con.execute(
+            "SELECT COUNT(*) FROM curated.btc_ohlcv WHERE exchange = 'binance'"
+        ).fetchone()[0]
+        logger.info("Loaded %d rows. Binance total: %d rows.", len(rows), count)
     finally:
         con.close()
 

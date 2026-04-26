@@ -6,12 +6,12 @@ datahaus demonstrates what production data operations looks like: automated inge
 
 ## Architecture
 
-<!-- TODO: replace with SVG diagram -->
 See [docs/architecture.md](docs/architecture.md) for the five-layer design.
 
-**Phase 1 pipeline:**
+**Phase 2 pipeline:**
 ```
-Binance API → Airflow DAG → PySpark transform → DuckDB → Soda checks
+Binance + Bybit + OKX APIs → Exchange Adapters → Airflow DAGs → DuckDB → Soda checks
+                                                                   └──→ Reconciliation → Alert Router
 ```
 
 ## Quickstart
@@ -24,39 +24,70 @@ git clone <repo-url> ~/datahaus && cd ~/datahaus
 # One-time setup
 make setup              # install Python dependencies
 make airflow-init       # initialize Airflow DB + admin user
+make db-init            # bootstrap DuckDB schema
+
+# If upgrading from Phase 1:
+make db-migrate         # migrate existing Binance data to new schema
 
 # Terminal 1: start Airflow
 make airflow            # scheduler + webserver on :8080
 
-# Terminal 2: operate the pipeline
-make trigger-pipeline   # trigger the Binance ingestion DAG
-                        # wait ~1 min for completion
-make run-checks         # run Soda data quality checks (all should pass)
+# Terminal 2: operate the pipelines
+make trigger-all        # trigger all 3 exchange DAGs
+                        # wait ~1-2 min for completion
+make db-query-all       # verify data from all exchanges
+make run-checks-all     # run Soda checks (all should pass)
 
-# Chaos testing
-make chaos-freshness    # pause the DAG (simulates pipeline stall)
+# Reconciliation
+make run-reconciliation # check for cross-exchange spread anomalies
+make view-alerts        # view alert history
+
+# Chaos testing — freshness
+make chaos-freshness-bybit   # pause the Bybit DAG
 # wait for freshness threshold to expire, then:
-make run-checks         # freshness check now FAILS
+make run-checks-all          # Bybit freshness check FAILS
+make chaos-clear ARGS="--exchange bybit"  # un-pause
+make trigger-bybit           # ingest fresh data
+make run-checks-all          # all checks pass again
 
-# Recovery
-make chaos-clear        # un-pause the DAG
-make trigger-pipeline   # ingest fresh data
-make run-checks         # all checks pass again
+# Chaos testing — spread divergence
+make chaos-spread            # inject fake price anomaly
+make run-reconciliation      # spread alert fires
+make view-alerts             # see the alert
+make chaos-spread-clean      # clean up injected data
 ```
 
 ## Make targets
 
 | Target | Description |
 |--------|-------------|
+| **Setup** | |
 | `make setup` | Install system + Python dependencies |
 | `make airflow-init` | Initialize Airflow DB and admin user |
+| `make db-init` | Bootstrap the DuckDB schema |
+| `make db-migrate` | Migrate Phase 1 data to Phase 2 schema |
+| **Run** | |
 | `make airflow` | Start Airflow standalone (scheduler + webserver) |
-| `make trigger-pipeline` | Trigger the Binance klines DAG |
-| `make run-checks` | Run Soda data quality checks |
-| `make chaos-freshness` | Chaos: pause DAG to cause freshness breach |
-| `make chaos-clear` | Recovery: un-pause DAG |
+| `make trigger-binance` | Trigger Binance klines DAG |
+| `make trigger-bybit` | Trigger Bybit klines DAG |
+| `make trigger-okx` | Trigger OKX klines DAG |
+| `make trigger-all` | Trigger all exchange DAGs |
+| `make run-reconciliation` | Trigger cross-exchange reconciliation |
+| `make run-checks` | Run Soda checks (Binance + global) |
+| `make run-checks-all` | Run Soda checks for all exchanges |
+| **Chaos** | |
+| `make chaos-freshness` | Pause Binance DAG (default) |
+| `make chaos-freshness-bybit` | Pause Bybit DAG |
+| `make chaos-freshness-okx` | Pause OKX DAG |
+| `make chaos-freshness-all` | Pause all DAGs |
+| `make chaos-spread` | Inject fake price anomaly |
+| `make chaos-spread-clean` | Clean up spread chaos |
+| `make chaos-clear` | Un-pause DAG(s) |
+| **Dev** | |
 | `make test` | Run unit tests |
-| `make db-query` | Show latest data in the warehouse |
+| `make db-query` | Show latest Binance data |
+| `make db-query-all` | Show data summary per exchange |
+| `make view-alerts` | Show recent alerts |
 | `make help` | List all targets |
 
 ## Tech stack
@@ -64,15 +95,17 @@ make run-checks         # all checks pass again
 | Component | Tool |
 |-----------|------|
 | Orchestration | Apache Airflow (standalone) |
-| Compute | PySpark (local mode) |
-| Storage | DuckDB + Delta Lake |
-| Data quality | Soda Core |
-| Chaos scripts | Python + Airflow REST API |
+| Compute | Exchange adapters (pure Python) |
+| Storage | DuckDB (unified table with exchange column) |
+| Data quality | Soda Core (per-exchange + global checks) |
+| Reconciliation | Cross-exchange spread detection |
+| Alerting | File-based JSONL + optional Slack webhook |
+| Chaos scripts | Python + Airflow REST API + DuckDB injection |
 
 ## Phase roadmap
 
-- **Phase 1** *(current)*: Single pipeline end-to-end — Binance BTC/USDT klines → DuckDB → Soda checks → manual chaos
-- **Phase 2**: Multi-exchange (Coinbase, Kraken), cross-exchange reconciliation, alert router + Slack
+- **Phase 1** *(complete)*: Single pipeline end-to-end — Binance BTC/USDT klines → DuckDB → Soda checks → manual chaos
+- **Phase 2** *(complete)*: Multi-exchange (Bybit, OKX), cross-exchange reconciliation, alert router + Slack
 - **Phase 3**: Chaos Engine framework, Shift Console UI, scripted failure scenarios
 - **Phase 4**: Polymarket as second data domain, runbook library, demo video
 
