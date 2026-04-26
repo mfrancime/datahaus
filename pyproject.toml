@@ -5,7 +5,7 @@ description = "Personal data operations platform — 24/7 market data ingestion,
 requires-python = ">=3.10"
 
 dependencies = [
-    "apache-airflow==2.10.5",
+    "apache-airflow==3.2.0",
     "pyspark==3.5.4",
     "delta-spark==3.3.0",
     "duckdb>=1.0.0",
