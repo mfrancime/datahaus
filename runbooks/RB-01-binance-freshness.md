@@ -3,7 +3,7 @@
 **Severity:** P2 — Data Delayed
 **Service:** datahaus / binance_klines_1m
 **Check:** `freshness(ingested_at) < 10m` on `curated.btc_ohlcv`
-**Last reviewed:** 2025-01-01
+**Last reviewed:** 2026-04-27
 
 ---
 
